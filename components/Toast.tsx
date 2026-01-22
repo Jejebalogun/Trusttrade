@@ -88,7 +88,7 @@ interface ToastContainerProps {
 
 function ToastContainer({ toasts, removeToast }: ToastContainerProps) {
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-11/12 sm:w-full pointer-events-none">
       <AnimatePresence>
         {toasts.map((toast) => (
           <ToastItem key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />
@@ -130,12 +130,12 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -20, scale: 0.95 }}
-      className={`pointer-events-auto p-4 rounded-lg border backdrop-blur-sm ${borderColors[toast.type]} ${bgColors[toast.type]} bg-gray-900/90`}
+      className={`pointer-events-auto p-3 sm:p-4 rounded-lg border backdrop-blur-sm ${borderColors[toast.type]} ${bgColors[toast.type]} bg-gray-900/90`}
     >
       <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 mt-0.5">{icons[toast.type]}</div>
+        <div className="flex-shrink-0 mt-0.5 text-sm sm:text-base">{icons[toast.type]}</div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-white">{toast.title}</p>
+          <p className="text-xs sm:text-sm font-medium text-white">{toast.title}</p>
           {toast.message && (
             <p className="mt-1 text-xs text-gray-400">{toast.message}</p>
           )}
@@ -143,7 +143,7 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
         {toast.type !== 'loading' && (
           <button
             onClick={onClose}
-            className="flex-shrink-0 text-gray-400 hover:text-white transition-colors"
+            className="flex-shrink-0 text-gray-400 hover:text-white transition-colors ml-2"
           >
             <X className="w-4 h-4" />
           </button>

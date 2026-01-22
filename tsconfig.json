@@ -22,6 +22,6 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "hardhat.config.ts", "scripts/**", "contracts/**", "test/**"]
+  "include": ["next-env.d.ts", "app/**/*.ts", "app/**/*.tsx", "components/**/*.ts", "components/**/*.tsx", "hooks/**/*.ts", "lib/**/*.ts", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", "hardhat.config.ts", "scripts/**", "contracts/**", "test/**", "subgraph/**", "api/**"]
 }

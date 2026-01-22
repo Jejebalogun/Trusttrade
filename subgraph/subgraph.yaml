@@ -1,0 +1,46 @@
+specVersion: 1.0.0
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: TrustTrade
+    network: base-sepolia
+    source:
+      address: "0x0000000000000000000000000000000000000000" # Replace with deployed contract address
+      abi: TrustTrade
+      startBlock: 0 # Replace with contract deployment block
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Trade
+        - User
+        - Review
+        - UserProfile
+      abis:
+        - name: TrustTrade
+          file: ./abis/TrustTrade.json
+      eventHandlers:
+        - event: TradeCreated(indexed uint256,indexed address,address,uint256,uint256,uint256)
+          handler: handleTradeCreated
+        - event: TradeExecuted(indexed uint256,indexed address,indexed address,uint256,uint256,uint256)
+          handler: handleTradeExecuted
+        - event: TradeInEscrow(indexed uint256,indexed address,indexed address,uint256)
+          handler: handleTradeInEscrow
+        - event: TradeCompleted(indexed uint256,indexed address,indexed address)
+          handler: handleTradeCompleted
+        - event: TradeCancelled(indexed uint256,indexed address)
+          handler: handleTradeCancelled
+        - event: TradeDisputed(indexed uint256,indexed address,string)
+          handler: handleTradeDisputed
+        - event: DisputeResolved(indexed uint256,indexed address,bool)
+          handler: handleDisputeResolved
+        - event: UserProfileUpdated(indexed address,string,string)
+          handler: handleUserProfileUpdated
+        - event: ReviewSubmitted(indexed uint256,indexed address,indexed address,uint8,string)
+          handler: handleReviewSubmitted
+        - event: ReviewHelpful(indexed uint256,indexed address)
+          handler: handleReviewHelpful
+      callHandlers: []
+      blockHandlers: []

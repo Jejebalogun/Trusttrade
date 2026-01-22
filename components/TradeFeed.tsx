@@ -10,12 +10,16 @@ import { fetchEthosScore } from '@/lib/ethos';
 import { getTokenDisplayName, getCachedTokenInfo } from '@/lib/tokens';
 import { TradeCardSkeleton } from './Skeleton';
 import { useToast } from './Toast';
+import { EscrowTimer } from './EscrowTimer';
+import { UserProfile } from './UserProfile';
 
 // Trade status enum matching the contract
 enum TradeStatus {
   Active = 0,
-  Executed = 1,
-  Cancelled = 2,
+  Escrow = 1,
+  Completed = 2,
+  Cancelled = 3,
+  Disputed = 4,
 }
 
 interface Trade {
@@ -28,6 +32,9 @@ interface Trade {
   feeBasisPoints: bigint;
   status: number;
   createdAt: bigint;
+  executedAt: bigint;
+  escrowDuration: bigint;
+  disputed: boolean;
 }
 
 interface DisplayTrade {
@@ -40,10 +47,14 @@ interface DisplayTrade {
   ethPriceRaw: bigint;
   feeBasisPoints: number;
   status: string;
+  statusCode: number;
   token: string;
   tokenSymbol: string;
   tokenAddress: `0x${string}`;
   createdAt: number;
+  executedAt: number;
+  escrowDuration: number;
+  disputed: boolean;
 }
 
 // Mock trades shown when contract has no trades
@@ -58,10 +69,14 @@ const mockTrades: DisplayTrade[] = [
     ethPriceRaw: parseEther('0.05'),
     feeBasisPoints: 0,
     status: 'Active',
+    statusCode: 0,
     token: 'DAK Token',
     tokenSymbol: 'DAK',
     tokenAddress: '0x0000000000000000000000000000000000000000' as `0x${string}`,
     createdAt: Date.now() / 1000 - 7200,
+    executedAt: 0,
+    escrowDuration: 86400,
+    disputed: false,
   },
 ];
 
@@ -73,11 +88,17 @@ export function TradeFeed() {
   const [tokenSymbols, setTokenSymbols] = useState<Record<string, string>>({});
   const [buyingTradeId, setBuyingTradeId] = useState<string | null>(null);
   const [cancellingTradeId, setCancellingTradeId] = useState<string | null>(null);
+  const [releasingTradeId, setReleasingTradeId] = useState<string | null>(null);
+  const [disputingTradeId, setDisputingTradeId] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState<string | null>(null);
   const [txSuccess, setTxSuccess] = useState<string | null>(null);
   const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
+  const [releaseSuccess, setReleaseSuccess] = useState<string | null>(null);
+  const [disputeSuccess, setDisputeSuccess] = useState<string | null>(null);
   const [buyToastId, setBuyToastId] = useState<string | null>(null);
   const [cancelToastId, setCancelToastId] = useState<string | null>(null);
+  const [releaseToastId, setReleaseToastId] = useState<string | null>(null);
+  const [disputeToastId, setDisputeToastId] = useState<string | null>(null);
 
   // Filter and search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -117,6 +138,12 @@ export function TradeFeed() {
   // Cancel trade function
   const { data: cancelHash, writeContract: executeCancel, isPending: isCancelPending, error: cancelError } = useWriteContract();
 
+  // Release escrow function
+  const { data: releaseHash, writeContract: executeRelease, isPending: isReleasePending, error: releaseError } = useWriteContract();
+
+  // Dispute trade function
+  const { data: disputeHash, writeContract: executeDispute, isPending: isDisputePending, error: disputeError } = useWriteContract();
+
   // Wait for buy transaction receipt
   const { isLoading: isBuyConfirming, isSuccess: isBuySuccess } = useWaitForTransactionReceipt({
     hash: buyHash,
@@ -125,6 +152,16 @@ export function TradeFeed() {
   // Wait for cancel transaction receipt
   const { isLoading: isCancelConfirming, isSuccess: isCancelSuccess } = useWaitForTransactionReceipt({
     hash: cancelHash,
+  });
+
+  // Wait for release transaction receipt
+  const { isLoading: isReleaseConfirming, isSuccess: isReleaseSuccess } = useWaitForTransactionReceipt({
+    hash: releaseHash,
+  });
+
+  // Wait for dispute transaction receipt
+  const { isLoading: isDisputeConfirming, isSuccess: isDisputeSuccess } = useWaitForTransactionReceipt({
+    hash: disputeHash,
   });
 
   // Handle buy success
@@ -172,6 +209,50 @@ export function TradeFeed() {
     }
   }, [isCancelSuccess, cancellingTradeId, cancelToastId, updateToast, refetchCounter, refetchTrades]);
 
+  // Handle release escrow success
+  useEffect(() => {
+    if (isReleaseSuccess && releasingTradeId) {
+      setReleaseSuccess(releasingTradeId);
+      setReleasingTradeId(null);
+      // Update toast to success
+      if (releaseToastId) {
+        updateToast(releaseToastId, {
+          type: 'success',
+          title: 'Escrow released',
+          message: `Trade #${releasingTradeId} funds released to your wallet.`,
+        });
+        setReleaseToastId(null);
+      }
+      // Refetch trades after successful release
+      refetchCounter();
+      refetchTrades();
+      // Clear success message after 5 seconds
+      setTimeout(() => setReleaseSuccess(null), 5000);
+    }
+  }, [isReleaseSuccess, releasingTradeId, releaseToastId, updateToast, refetchCounter, refetchTrades]);
+
+  // Handle dispute trade success
+  useEffect(() => {
+    if (isDisputeSuccess && disputingTradeId) {
+      setDisputeSuccess(disputingTradeId);
+      setDisputingTradeId(null);
+      // Update toast to success
+      if (disputeToastId) {
+        updateToast(disputeToastId, {
+          type: 'success',
+          title: 'Trade disputed',
+          message: `Trade #${disputingTradeId} marked for dispute. Awaiting resolution.`,
+        });
+        setDisputeToastId(null);
+      }
+      // Refetch trades after successful dispute
+      refetchCounter();
+      refetchTrades();
+      // Clear success message after 5 seconds
+      setTimeout(() => setDisputeSuccess(null), 5000);
+    }
+  }, [isDisputeSuccess, disputingTradeId, disputeToastId, updateToast, refetchCounter, refetchTrades]);
+
   // Process trades data and fetch seller scores
   useEffect(() => {
     if (!tradesData) {
@@ -209,10 +290,14 @@ export function TradeFeed() {
             ethPriceRaw: trade.ethPrice,
             feeBasisPoints: Number(trade.feeBasisPoints),
             status: 'Active',
+            statusCode: trade.status,
             token: `${trade.token.slice(0, 6)}...${trade.token.slice(-4)}`,
             tokenSymbol: displaySymbol,
             tokenAddress: trade.token,
             createdAt: Number(trade.createdAt),
+            executedAt: Number(trade.executedAt || 0),
+            escrowDuration: Number(trade.escrowDuration || 86400),
+            disputed: trade.disputed || false,
           });
         }
       }
@@ -346,6 +431,102 @@ export function TradeFeed() {
     }
   };
 
+  const handleReleaseEscrow = async (trade: DisplayTrade) => {
+    if (!isConnected) {
+      addToast({
+        type: 'error',
+        title: 'Wallet not connected',
+        message: 'Please connect your wallet first',
+      });
+      return;
+    }
+
+    // Only the seller can release escrow
+    if (userAddress?.toLowerCase() !== trade.sellerFull.toLowerCase()) {
+      addToast({
+        type: 'error',
+        title: 'Unauthorized',
+        message: 'Only the seller can release escrow',
+      });
+      return;
+    }
+
+    setReleasingTradeId(trade.id);
+
+    // Show loading toast
+    const toastId = addToast({
+      type: 'loading',
+      title: 'Releasing escrow...',
+      message: `Releasing funds for trade #${trade.id}`,
+    });
+    setReleaseToastId(toastId);
+
+    try {
+      executeRelease({
+        address: TRUSTTRADE_ADDRESS,
+        abi: TRUSTTRADE_ABI,
+        functionName: 'releaseEscrow',
+        args: [BigInt(trade.id)],
+      });
+    } catch (error) {
+      console.error('Release escrow error:', error);
+      setReleasingTradeId(null);
+      updateToast(toastId, {
+        type: 'error',
+        title: 'Release failed',
+        message: 'Transaction could not be initiated',
+      });
+    }
+  };
+
+  const handleDisputeTrade = async (trade: DisplayTrade) => {
+    if (!isConnected) {
+      addToast({
+        type: 'error',
+        title: 'Wallet not connected',
+        message: 'Please connect your wallet first',
+      });
+      return;
+    }
+
+    // Only the buyer can dispute
+    if (trade.statusCode !== TradeStatus.Escrow) {
+      addToast({
+        type: 'error',
+        title: 'Cannot dispute',
+        message: 'Trade must be in escrow to dispute',
+      });
+      return;
+    }
+
+    setDisputingTradeId(trade.id);
+
+    // Show loading toast
+    const toastId = addToast({
+      type: 'loading',
+      title: 'Initiating dispute...',
+      message: `Marking trade #${trade.id} for dispute`,
+    });
+    setDisputeToastId(toastId);
+
+    try {
+      executeDispute({
+        address: TRUSTTRADE_ADDRESS,
+        abi: TRUSTTRADE_ABI,
+        functionName: 'disputeTrade',
+        args: [BigInt(trade.id), 'Trade dispute initiated by buyer'],
+      });
+    } catch (error) {
+      console.error('Dispute error:', error);
+      setDisputingTradeId(null);
+      updateToast(toastId, {
+        type: 'error',
+        title: 'Dispute failed',
+        message: 'Transaction could not be initiated',
+      });
+    }
+  };
+
   const getScoreColor = (score: number) => {
     if (score >= 2000) return 'text-green-400';
     if (score >= 1000) return 'text-blue-400';
@@ -470,32 +651,32 @@ export function TradeFeed() {
       transition={{ delay: 0.4 }}
       className="glass-card p-8"
     >
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-2xl font-bold">Active Trades</h3>
-        <div className="flex items-center gap-2 px-3 py-1 bg-teal-500/20 rounded-full">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <h3 className="text-xl sm:text-2xl font-bold">Active Trades</h3>
+        <div className="flex items-center gap-2 px-3 py-1 bg-teal-500/20 rounded-full w-fit">
           <div className="w-2 h-2 bg-teal-400 rounded-full animate-pulse" />
-          <span className="text-sm text-teal-400">Live</span>
+          <span className="text-xs sm:text-sm text-teal-400">Live</span>
         </div>
       </div>
 
       {/* Search and Filter Bar */}
-      <div className="mb-6 space-y-4">
+      <div className="mb-6 space-y-3 sm:space-y-4">
         {/* Search and Quick Actions */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col xs:flex-row gap-2 sm:gap-3">
           {/* Search Input */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 flex-shrink-0" />
             <input
               type="text"
-              placeholder="Search by token or seller address..."
+              placeholder="Search token or address..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-gray-800/50 border border-white/10 rounded-lg text-sm focus:outline-none focus:border-teal-500/50 transition-colors"
+              className="w-full pl-10 pr-10 py-2 sm:py-2.5 bg-gray-800/50 border border-white/10 rounded-lg text-xs sm:text-sm focus:outline-none focus:border-teal-500/50 transition-colors"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white flex-shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -505,14 +686,14 @@ export function TradeFeed() {
           {/* Filter Toggle Button */}
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border transition-all ${
+            className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg border transition-all whitespace-nowrap flex-shrink-0 ${
               showFilters || activeFilterCount > 0
                 ? 'bg-teal-500/20 border-teal-500/50 text-teal-400'
                 : 'bg-gray-800/50 border-white/10 text-gray-400 hover:text-white hover:border-white/20'
             }`}
           >
             <SlidersHorizontal className="w-4 h-4" />
-            <span className="text-sm">Filters</span>
+            <span className="text-xs sm:text-sm">Filters</span>
             {activeFilterCount > 0 && (
               <span className="ml-1 px-1.5 py-0.5 text-xs bg-teal-500 text-white rounded-full">
                 {activeFilterCount}
@@ -521,19 +702,19 @@ export function TradeFeed() {
           </button>
 
           {/* Sort Dropdown */}
-          <div className="relative">
+          <div className="relative flex-shrink-0">
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="appearance-none pl-4 pr-10 py-2.5 bg-gray-800/50 border border-white/10 rounded-lg text-sm text-gray-300 focus:outline-none focus:border-teal-500/50 transition-colors cursor-pointer"
+              className="appearance-none pl-3 sm:pl-4 pr-9 sm:pr-10 py-2 sm:py-2.5 bg-gray-800/50 border border-white/10 rounded-lg text-xs sm:text-sm text-gray-300 focus:outline-none focus:border-teal-500/50 transition-colors cursor-pointer"
             >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-              <option value="price_low">Price: Low to High</option>
-              <option value="price_high">Price: High to Low</option>
-              <option value="trust">Highest Trust</option>
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="price_low">Price ↓</option>
+              <option value="price_high">Price ↑</option>
+              <option value="trust">Trusted</option>
             </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <ChevronDown className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none flex-shrink-0" />
           </div>
         </div>
 
@@ -543,12 +724,12 @@ export function TradeFeed() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="p-4 bg-gray-800/30 rounded-lg border border-white/5"
+            className="p-3 sm:p-4 bg-gray-800/30 rounded-lg border border-white/5"
           >
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {/* Price Range */}
               <div>
-                <label className="block text-xs text-gray-400 mb-2">Price Range (ETH)</label>
+                <label className="block text-xs text-gray-400 mb-2">Price Range</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
@@ -557,9 +738,9 @@ export function TradeFeed() {
                     onChange={(e) => setPriceMin(e.target.value)}
                     step="0.01"
                     min="0"
-                    className="w-full px-3 py-2 bg-gray-700/50 border border-white/10 rounded-lg text-sm focus:outline-none focus:border-teal-500/50"
+                    className="w-full px-2 sm:px-3 py-1.5 sm:py-2 bg-gray-700/50 border border-white/10 rounded-lg text-xs sm:text-sm focus:outline-none focus:border-teal-500/50"
                   />
-                  <span className="text-gray-500">-</span>
+                  <span className="text-gray-500 text-xs sm:text-sm flex-shrink-0">-</span>
                   <input
                     type="number"
                     placeholder="Max"
@@ -567,7 +748,7 @@ export function TradeFeed() {
                     onChange={(e) => setPriceMax(e.target.value)}
                     step="0.01"
                     min="0"
-                    className="w-full px-3 py-2 bg-gray-700/50 border border-white/10 rounded-lg text-sm focus:outline-none focus:border-teal-500/50"
+                    className="w-full px-2 sm:px-3 py-1.5 sm:py-2 bg-gray-700/50 border border-white/10 rounded-lg text-xs sm:text-sm focus:outline-none focus:border-teal-500/50"
                   />
                 </div>
               </div>
@@ -578,14 +759,14 @@ export function TradeFeed() {
                 <div className="flex flex-wrap gap-2">
                   {[
                     { value: 'all', label: 'All', color: 'gray' },
-                    { value: 'vip', label: '0% VIP', color: 'green' },
+                    { value: 'vip', label: 'VIP', color: 'green' },
                     { value: 'standard', label: '1%', color: 'blue' },
                     { value: 'new', label: '2.5%', color: 'orange' },
                   ].map((tier) => (
                     <button
                       key={tier.value}
                       onClick={() => setFeeTierFilter(tier.value as typeof feeTierFilter)}
-                      className={`px-3 py-1.5 text-xs rounded-lg border transition-all ${
+                      className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs rounded-lg border transition-all ${
                         feeTierFilter === tier.value
                           ? tier.color === 'green'
                             ? 'bg-green-500/20 border-green-500/50 text-green-400'
@@ -604,12 +785,12 @@ export function TradeFeed() {
               </div>
 
               {/* My Trades Toggle */}
-              <div>
+              <div className="flex flex-col justify-start">
                 <label className="block text-xs text-gray-400 mb-2">Show Only</label>
                 <button
                   onClick={() => setShowMyTrades(!showMyTrades)}
                   disabled={!isConnected}
-                  className={`px-4 py-2 text-sm rounded-lg border transition-all ${
+                  className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-lg border transition-all w-fit ${
                     showMyTrades
                       ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
                       : 'bg-gray-700/50 border-white/10 text-gray-400 hover:border-white/20'
@@ -620,12 +801,12 @@ export function TradeFeed() {
               </div>
 
               {/* Clear Filters */}
-              <div className="flex items-end">
+              <div className="flex items-end justify-start">
                 <button
                   onClick={clearFilters}
-                  className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
+                  className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm text-gray-400 hover:text-white transition-colors"
                 >
-                  Clear All Filters
+                  Clear All
                 </button>
               </div>
             </div>
@@ -690,6 +871,26 @@ export function TradeFeed() {
         </div>
       )}
 
+      {/* Release Escrow Success Message */}
+      {releaseSuccess && (
+        <div className="mb-4 p-4 bg-green-500/20 border border-green-500/30 rounded-lg flex items-center gap-3">
+          <CheckCircle className="w-5 h-5 text-green-400" />
+          <p className="text-green-400 text-sm">
+            Trade #{releaseSuccess} escrow released! Funds transferred to your wallet.
+          </p>
+        </div>
+      )}
+
+      {/* Dispute Success Message */}
+      {disputeSuccess && (
+        <div className="mb-4 p-4 bg-orange-500/20 border border-orange-500/30 rounded-lg flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-orange-400" />
+          <p className="text-orange-400 text-sm">
+            Trade #{disputeSuccess} marked for dispute. Admin will review and resolve.
+          </p>
+        </div>
+      )}
+
       <div className="space-y-4">
         {isLoading ? (
           <div className="space-y-4">
@@ -734,65 +935,52 @@ export function TradeFeed() {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.1 }}
-                className={`p-6 bg-gray-800/30 rounded-lg border transition-all hover-lift ${
+                className={`p-4 sm:p-6 bg-gray-800/30 rounded-lg border transition-all hover-lift ${
                   txSuccess === trade.id
                     ? 'border-green-500/50'
                     : 'border-white/5 hover:border-teal-500/30'
                 }`}
               >
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex flex-col gap-4">
                   {/* Seller Info */}
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-blue-500 rounded-full flex items-center justify-center">
-                        <User className="w-5 h-5 text-white" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm">{trade.seller}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded ${badge.color}`}>
-                            {badge.label}
-                          </span>
-                          {isOwnTrade && (
-                            <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-400">
-                              Your Trade
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <TrendingUp className="w-3 h-3 text-gray-400" />
-                          <span className="text-xs text-gray-400">Ethos Score:</span>
-                          <span className={`text-xs font-semibold ${getScoreColor(trade.sellerScore)}`}>
-                            {trade.sellerScore.toLocaleString()}
-                          </span>
-                        </div>
-                      </div>
+                    <div className="flex items-start gap-3">
+                      <UserProfile
+                        address={trade.sellerFull || trade.seller}
+                        score={trade.sellerScore}
+                        size="md"
+                        showDetails={true}
+                      />
+                      {isOwnTrade && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 flex-shrink-0 h-fit">
+                          Your Trade
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Trade Details */}
-                  <div className="flex items-center gap-6">
-                    <div className="text-center">
+                  {/* Trade Details Grid */}
+                  <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                    <div className="text-center p-2 sm:p-3 bg-gray-900/40 rounded-lg">
                       <p className="text-xs text-gray-400 mb-1">Selling</p>
-                      <div className="flex items-center gap-1">
-                        <Coins className="w-4 h-4 text-teal-400" />
-                        <p className="font-semibold">{parseFloat(trade.tokenAmount).toLocaleString()}</p>
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Coins className="w-3 h-3 sm:w-4 sm:h-4 text-teal-400 flex-shrink-0" />
+                        <p className="font-semibold text-xs sm:text-sm truncate">{parseFloat(trade.tokenAmount).toLocaleString()}</p>
                       </div>
-                      <p className="text-xs text-teal-400 mt-1 font-medium">{trade.tokenSymbol}</p>
-                      <p className="text-xs text-gray-500 font-mono">{trade.token}</p>
+                      <p className="text-xs text-teal-400 font-medium">{trade.tokenSymbol}</p>
+                      <p className="text-xs text-gray-500 font-mono truncate">{trade.token}</p>
                     </div>
 
-                    <div className="text-center">
+                    <div className="text-center p-2 sm:p-3 bg-gray-900/40 rounded-lg">
                       <p className="text-xs text-gray-400 mb-1">Price</p>
-                      <p className="text-2xl font-bold text-teal-400">{trade.ethPrice} ETH</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Total: {formatEther(totalCost)} ETH
-                      </p>
+                      <p className="text-lg sm:text-2xl font-bold text-teal-400 truncate">{trade.ethPrice}</p>
+                      <p className="text-xs text-gray-500">ETH</p>
+                      <p className="text-xs text-gray-600 mt-1 truncate">Total: {formatEther(totalCost)}</p>
                     </div>
 
-                    <div className="text-center">
+                    <div className="text-center p-2 sm:p-3 bg-gray-900/40 rounded-lg">
                       <p className="text-xs text-gray-400 mb-1">Fee</p>
-                      <p className={`font-semibold ${
+                      <p className={`text-lg sm:text-xl font-semibold ${
                         trade.feeBasisPoints === 0
                           ? 'text-green-400'
                           : trade.feeBasisPoints === 100
@@ -804,30 +992,55 @@ export function TradeFeed() {
                     </div>
                   </div>
 
+                  {/* Trust Indicator */}
+                  <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-3 h-3" />
+                      <span>Listed {formatTimeAgo(trade.createdAt)}</span>
+                    </div>
+                    {trade.sellerScore >= 2000 && (
+                      <div className="text-xs text-green-400 flex items-center gap-1">
+                        <span>✓</span>
+                        <span>Trusted</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Escrow Timer - Show only for trades in escrow status */}
+                  {trade.statusCode === TradeStatus.Escrow && trade.executedAt > 0 && (
+                    <div className="pt-2">
+                      <EscrowTimer
+                        executedAt={trade.executedAt}
+                        escrowDuration={trade.escrowDuration}
+                        tradeId={Number(trade.id)}
+                      />
+                    </div>
+                  )}
+
                   {/* Action Buttons */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex gap-2 pt-2">
                     {isOwnTrade ? (
                       // Cancel button for own trades
                       showingCancelConfirm ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 w-full">
                           <button
                             onClick={() => handleCancel(trade)}
                             disabled={isCurrentlyCancelling}
-                            className="px-4 py-2 bg-red-500/20 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-500/30 transition-all flex items-center gap-2 text-sm"
+                            className="flex-1 px-3 sm:px-4 py-2 bg-red-500/20 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-500/30 transition-all flex items-center justify-center gap-2 text-xs sm:text-sm"
                           >
                             {isCurrentlyCancelling ? (
                               <>
                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                {isCancelConfirming ? 'Confirming...' : 'Cancelling...'}
+                                <span className="hidden sm:inline">{isCancelConfirming ? 'Confirming...' : 'Cancelling...'}</span>
                               </>
                             ) : (
-                              'Confirm Cancel'
+                              'Confirm'
                             )}
                           </button>
                           <button
                             onClick={() => setShowCancelConfirm(null)}
                             disabled={isCurrentlyCancelling}
-                            className="p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 transition-all"
+                            className="p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 transition-all flex-shrink-0"
                           >
                             <X className="w-4 h-4 text-gray-400" />
                           </button>
@@ -835,43 +1048,71 @@ export function TradeFeed() {
                       ) : (
                         <button
                           onClick={() => setShowCancelConfirm(trade.id)}
-                          className="px-4 py-2 bg-gray-700/50 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700 hover:border-red-500/50 hover:text-red-400 transition-all flex items-center gap-2"
+                          className="w-full px-3 sm:px-4 py-2 bg-gray-700/50 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700 hover:border-red-500/50 hover:text-red-400 transition-all text-xs sm:text-sm"
                         >
                           Cancel Trade
                         </button>
                       )
                     ) : (
-                      // Buy button for other users' trades
-                      <button
-                        onClick={() => handleBuy(trade)}
-                        disabled={isCurrentlyBuying || !isConnected}
-                        className="btn-primary whitespace-nowrap flex items-center gap-2"
-                      >
-                        {isCurrentlyBuying ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            {isBuyConfirming ? 'Confirming...' : 'Buying...'}
-                          </>
-                        ) : (
-                          'Buy Now'
-                        )}
-                      </button>
+                      // Buy button for other users' trades or escrow actions
+                      trade.statusCode === TradeStatus.Escrow ? (
+                        <div className="flex gap-2">
+                          {/* Buyer can dispute */}
+                          <button
+                            onClick={() => handleDisputeTrade(trade)}
+                            disabled={disputingTradeId === trade.id || !isConnected}
+                            className="flex-1 px-3 sm:px-4 py-2 bg-orange-500/20 border border-orange-500/50 text-orange-400 rounded-lg hover:bg-orange-500/30 transition-all flex items-center justify-center gap-2 text-xs sm:text-sm"
+                          >
+                            {disputingTradeId === trade.id ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <span className="hidden sm:inline">{isDisputeConfirming ? 'Confirming...' : 'Disputing...'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <AlertCircle className="w-4 h-4" />
+                                <span>Dispute</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Seller can release escrow */}
+                          {userAddress?.toLowerCase() === trade.sellerFull.toLowerCase() && (
+                            <button
+                              onClick={() => handleReleaseEscrow(trade)}
+                              disabled={releasingTradeId === trade.id || !isConnected}
+                              className="flex-1 px-3 sm:px-4 py-2 bg-green-500/20 border border-green-500/50 text-green-400 rounded-lg hover:bg-green-500/30 transition-all flex items-center justify-center gap-2 text-xs sm:text-sm"
+                            >
+                              {releasingTradeId === trade.id ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  <span className="hidden sm:inline">{isReleaseConfirming ? 'Confirming...' : 'Releasing...'}</span>
+                                </>
+                              ) : (
+                                'Release'
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleBuy(trade)}
+                          disabled={isCurrentlyBuying || !isConnected}
+                          className="w-full btn-primary flex items-center justify-center gap-2 text-xs sm:text-sm py-2 sm:py-2.5"
+                        >
+                          {isCurrentlyBuying ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span className="hidden sm:inline">{isBuyConfirming ? 'Confirming...' : 'Buying...'}</span>
+                              <span className="sm:hidden">{isBuyConfirming ? 'Wait...' : 'Buy...'}</span>
+                            </>
+                          ) : (
+                            'Buy Now'
+                          )}
+                        </button>
+                      )
                     )}
                   </div>
-                </div>
-
-                {/* Trust indicator */}
-                <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <Clock className="w-3 h-3" />
-                    <span>Listed {formatTimeAgo(trade.createdAt)}</span>
-                  </div>
-                  {trade.sellerScore >= 2000 && (
-                    <div className="text-xs text-green-400 flex items-center gap-1">
-                      <span>✓</span>
-                      <span>Highly Trusted Seller</span>
-                    </div>
-                  )}
                 </div>
               </motion.div>
             );

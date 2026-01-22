@@ -1,0 +1,84 @@
+type Trade @entity(immutable: false) {
+  id: ID!
+  tradeId: BigInt!
+  seller: User!
+  buyer: User
+  token: Bytes!
+  tokenAmount: BigDecimal!
+  ethPrice: BigDecimal!
+  feeBasisPoints: BigInt!
+  status: String!
+  disputed: Boolean!
+  createdAt: BigInt!
+  createdBlock: BigInt!
+  executedAt: BigInt
+  escrowDuration: BigInt!
+  completedAt: BigInt
+  cancelledAt: BigInt
+  dispute: Dispute
+}
+
+type User @entity(immutable: false) {
+  id: ID!
+  address: Bytes!
+  profile: UserProfile
+  tradesAsVendor: [Trade!]! @derivedFrom(field: "seller")
+  tradesAsBuyer: [Trade!]! @derivedFrom(field: "buyer")
+  reviewsGiven: [Review!]! @derivedFrom(field: "reviewer")
+  reviewsReceived: [Review!]! @derivedFrom(field: "reviewee")
+  totalTradesVendor: Int!
+  totalTradesBuyer: Int!
+  completedTradesVendor: Int!
+  completedTradesBuyer: Int!
+  totalVolume: BigDecimal!
+  averageRating: BigDecimal!
+  reviewCount: Int!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+}
+
+type UserProfile @entity(immutable: false) {
+  id: ID!
+  user: User!
+  twitter: String
+  discord: String
+  updatedAt: BigInt!
+}
+
+type Review @entity(immutable: false) {
+  id: ID!
+  reviewId: BigInt!
+  reviewer: User!
+  reviewee: User!
+  rating: Int!
+  comment: String!
+  helpful: BigInt!
+  createdAt: BigInt!
+  createdBlock: BigInt!
+}
+
+type Dispute @entity(immutable: false) {
+  id: ID!
+  tradeId: BigInt!
+  trade: Trade!
+  initiatedBy: Bytes!
+  reason: String!
+  initiatedAt: BigInt!
+  resolved: Boolean!
+  resolvedBy: Bytes
+  favorsbuyer: Boolean
+  resolvedAt: BigInt
+}
+
+type Platform @entity {
+  id: ID!
+  totalTrades: Int!
+  totalVolume: BigDecimal!
+  totalUsers: Int!
+  totalReviews: Int!
+  totalDisputes: Int!
+  resolvedDisputes: Int!
+  totalEthCollected: BigDecimal!
+  lastUpdatedBlock: BigInt!
+  lastUpdatedTimestamp: BigInt!
+}

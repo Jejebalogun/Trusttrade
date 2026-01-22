@@ -46,13 +46,13 @@ const FeatureCard = memo(function FeatureCard({
   subtitle,
 }: typeof featureCards[0]) {
   return (
-    <div className="glass-card p-6 hover-lift">
-      <div className={`w-12 h-12 ${bgColor} rounded-lg flex items-center justify-center mb-4 mx-auto`}>
-        <Icon className={`w-6 h-6 ${iconColor}`} />
+    <div className="glass-card p-4 sm:p-6 hover-lift">
+      <div className={`w-10 h-10 sm:w-12 sm:h-12 ${bgColor} rounded-lg flex items-center justify-center mb-3 sm:mb-4 mx-auto`}>
+        <Icon className={`w-5 h-5 sm:w-6 sm:h-6 ${iconColor}`} />
       </div>
-      <h3 className="text-lg font-semibold mb-2">{title}</h3>
-      <p className={`text-3xl font-bold ${feeColor} mb-2`}>{fee}</p>
-      <p className="text-sm text-gray-400">{subtitle}</p>
+      <h3 className="text-base sm:text-lg font-semibold mb-2">{title}</h3>
+      <p className={`text-2xl sm:text-3xl font-bold ${feeColor} mb-2`}>{fee}</p>
+      <p className="text-xs sm:text-sm text-gray-400">{subtitle}</p>
     </div>
   );
 });
@@ -65,7 +65,7 @@ export const Hero = memo(function Hero() {
   );
 
   return (
-    <section className="relative pt-32 pb-20 overflow-hidden">
+    <section className="relative pt-24 sm:pt-32 pb-12 sm:pb-20 overflow-hidden">
       {/* Static background grid - no heavy animations */}
       <div className="absolute inset-0 opacity-20 pointer-events-none">
         <div
@@ -85,26 +85,26 @@ export const Hero = memo(function Hero() {
           className="text-center max-w-4xl mx-auto"
         >
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-card mb-6 fade-in">
-            <Zap className="w-4 h-4 text-teal-400" />
-            <span className="text-sm text-gray-300">Powered by Ethos Network</span>
+          <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full glass-card mb-6 fade-in text-xs sm:text-sm">
+            <Zap className="w-3 h-3 sm:w-4 sm:h-4 text-teal-400 flex-shrink-0" />
+            <span className="text-gray-300">Powered by Ethos Network</span>
           </div>
 
           {/* Main heading */}
-          <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
+          <h1 className="text-3xl sm:text-5xl lg:text-7xl font-bold mb-4 sm:mb-6 leading-tight">
             <span className="gradient-text">TrustTrade:</span>
             <br />
             <span className="text-white">Reputation is Currency</span>
           </h1>
 
           {/* Subtitle */}
-          <p className="text-xl text-gray-400 mb-12 max-w-2xl mx-auto">
+          <p className="text-sm sm:text-base lg:text-xl text-gray-400 mb-8 sm:mb-12 max-w-2xl mx-auto">
             Trade ETH for tokens directly with dynamic fees based on your Ethos credibility score.
             The higher your reputation, the lower your fees.
           </p>
 
           {/* Feature cards */}
-          <div className="grid md:grid-cols-3 gap-6 max-w-3xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-3xl mx-auto">
             {renderedCards}
           </div>
         </motion.div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, parseUnits } from 'viem';
@@ -8,6 +8,7 @@ import { ArrowRight, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useReputationFee } from '@/hooks/useReputationFee';
 import { feePercentageToBasisPoints } from '@/lib/ethos';
 import { TRUSTTRADE_ABI, TRUSTTRADE_ADDRESS } from '@/lib/contract';
+import { useToast } from './Toast';
 
 // Mock ERC20 ABI for approve function
 const ERC20_ABI = [
@@ -26,11 +27,14 @@ const ERC20_ABI = [
 export function TradeForm() {
   const { address, isConnected } = useAccount();
   const { feePercent, tier, isLoading: loadingReputation } = useReputationFee(address);
+  const { addToast, updateToast } = useToast();
 
   const [tokenAddress, setTokenAddress] = useState('');
   const [tokenAmount, setTokenAmount] = useState('');
   const [ethPrice, setEthPrice] = useState('');
   const [step, setStep] = useState<'input' | 'approve' | 'create'>('input');
+  const [approveToastId, setApproveToastId] = useState<string | null>(null);
+  const [createToastId, setCreateToastId] = useState<string | null>(null);
 
   const {
     writeContract: approve,
@@ -51,6 +55,30 @@ export function TradeForm() {
   const { isSuccess: isCreateSuccess } = useWaitForTransactionReceipt({
     hash: createHash,
   });
+
+  // Handle approve success
+  useEffect(() => {
+    if (isApproveSuccess && approveToastId) {
+      updateToast(approveToastId, {
+        type: 'success',
+        title: 'Token approval successful!',
+        message: 'You can now create your trade',
+      });
+      setApproveToastId(null);
+    }
+  }, [isApproveSuccess, approveToastId, updateToast]);
+
+  // Handle create success
+  useEffect(() => {
+    if (isCreateSuccess && createToastId) {
+      updateToast(createToastId, {
+        type: 'success',
+        title: 'Trade created successfully!',
+        message: 'Your trade is now live and visible to buyers',
+      });
+      setCreateToastId(null);
+    }
+  }, [isCreateSuccess, createToastId, updateToast]);
 
   // Calculate fee amount
   const calculateFee = () => {
@@ -73,6 +101,14 @@ export function TradeForm() {
 
     try {
       const amount = parseUnits(tokenAmount, 18); // Assuming 18 decimals
+      
+      const toastId = addToast({
+        type: 'loading',
+        title: 'Approving tokens...',
+        message: 'Please confirm in your wallet',
+      });
+      setApproveToastId(toastId);
+
       approve({
         address: tokenAddress as `0x${string}`,
         abi: ERC20_ABI,
@@ -82,6 +118,11 @@ export function TradeForm() {
       setStep('approve');
     } catch (error) {
       console.error('Approval error:', error);
+      addToast({
+        type: 'error',
+        title: 'Approval failed',
+        message: 'Could not initiate token approval',
+      });
     }
   };
 
@@ -94,6 +135,13 @@ export function TradeForm() {
       const price = parseEther(ethPrice);
       const feeBasisPoints = feePercentageToBasisPoints(feePercent);
 
+      const toastId = addToast({
+        type: 'loading',
+        title: 'Creating trade...',
+        message: `Trading ${tokenAmount} tokens for ${ethPrice} ETH`,
+      });
+      setCreateToastId(toastId);
+
       createTrade({
         address: TRUSTTRADE_ADDRESS,
         abi: TRUSTTRADE_ABI,
@@ -103,6 +151,11 @@ export function TradeForm() {
       setStep('create');
     } catch (error) {
       console.error('Trade creation error:', error);
+      addToast({
+        type: 'error',
+        title: 'Trade creation failed',
+        message: 'Could not create the trade',
+      });
     }
   };
 
@@ -133,27 +186,27 @@ export function TradeForm() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
-      className="glass-card p-8"
+      className="glass-card p-6 sm:p-8"
     >
-      <h3 className="text-2xl font-bold mb-6">Create Trade</h3>
+      <h3 className="text-xl sm:text-2xl font-bold mb-6">Create Trade</h3>
 
       {isCreateSuccess ? (
         <div className="text-center py-8">
           <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto mb-4" />
-          <h4 className="text-xl font-semibold mb-2">Trade Created Successfully!</h4>
-          <p className="text-gray-400">Your trade is now active and visible to buyers</p>
+          <h4 className="text-lg sm:text-xl font-semibold mb-2">Trade Created Successfully!</h4>
+          <p className="text-sm text-gray-400">Your trade is now active and visible to buyers</p>
         </div>
       ) : (
         <>
           {/* Token Address */}
           <div className="mb-6">
-            <label className="block text-sm font-medium mb-2">Token Address</label>
+            <label className="block text-xs sm:text-sm font-medium mb-2">Token Address</label>
             <input
               type="text"
               placeholder="0x..."
               value={tokenAddress}
               onChange={(e) => setTokenAddress(e.target.value)}
-              className="w-full"
+              className="w-full px-3 py-2 sm:py-2.5 text-xs sm:text-sm"
               disabled={step !== 'input'}
             />
             <p className="text-xs text-gray-400 mt-1">
@@ -163,13 +216,13 @@ export function TradeForm() {
 
           {/* Token Amount */}
           <div className="mb-6">
-            <label className="block text-sm font-medium mb-2">Token Amount</label>
+            <label className="block text-xs sm:text-sm font-medium mb-2">Token Amount</label>
             <input
               type="number"
               placeholder="100"
               value={tokenAmount}
               onChange={(e) => setTokenAmount(e.target.value)}
-              className="w-full"
+              className="w-full px-3 py-2 sm:py-2.5 text-xs sm:text-sm"
               disabled={step !== 'input'}
             />
             <p className="text-xs text-gray-400 mt-1">Amount of tokens to sell</p>
@@ -177,14 +230,14 @@ export function TradeForm() {
 
           {/* ETH Price */}
           <div className="mb-6">
-            <label className="block text-sm font-medium mb-2">Price in ETH</label>
+            <label className="block text-xs sm:text-sm font-medium mb-2">Price in ETH</label>
             <input
               type="number"
               step="0.001"
               placeholder="0.05"
               value={ethPrice}
               onChange={(e) => setEthPrice(e.target.value)}
-              className="w-full"
+              className="w-full px-3 py-2 sm:py-2.5 text-xs sm:text-sm"
               disabled={step !== 'input'}
             />
             <p className="text-xs text-gray-400 mt-1">
@@ -194,9 +247,9 @@ export function TradeForm() {
 
           {/* Fee Breakdown */}
           {ethPrice && (
-            <div className="mb-6 p-4 bg-gray-800/50 rounded-lg">
-              <h4 className="text-sm font-semibold mb-3">Fee Breakdown</h4>
-              <div className="space-y-2 text-sm">
+            <div className="mb-6 p-3 sm:p-4 bg-gray-800/50 rounded-lg">
+              <h4 className="text-xs sm:text-sm font-semibold mb-3">Fee Breakdown</h4>
+              <div className="space-y-2 text-xs sm:text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-400">Your Tier:</span>
                   <span className="font-semibold">{tier}</span>
@@ -235,7 +288,7 @@ export function TradeForm() {
               <button
                 onClick={handleApprove}
                 disabled={!tokenAddress || !tokenAmount || !ethPrice || loadingReputation}
-                className="btn-primary w-full flex items-center justify-center gap-2"
+                className="btn-primary w-full flex items-center justify-center gap-2 py-2 sm:py-2.5 text-sm sm:text-base"
               >
                 {loadingReputation ? (
                   <>
@@ -254,14 +307,14 @@ export function TradeForm() {
             {step === 'approve' && (
               <>
                 {!isApproveSuccess ? (
-                  <button disabled className="btn-primary w-full flex items-center justify-center gap-2">
+                  <button disabled className="btn-primary w-full flex items-center justify-center gap-2 py-2 sm:py-2.5 text-sm sm:text-base">
                     <Loader2 className="w-5 h-5 animate-spin" />
                     Approving Tokens...
                   </button>
                 ) : (
                   <button
                     onClick={handleCreateTrade}
-                    className="btn-primary w-full flex items-center justify-center gap-2"
+                    className="btn-primary w-full flex items-center justify-center gap-2 py-2 sm:py-2.5 text-sm sm:text-base"
                   >
                     Create Trade
                     <ArrowRight className="w-5 h-5" />
@@ -271,7 +324,7 @@ export function TradeForm() {
             )}
 
             {step === 'create' && isCreating && (
-              <button disabled className="btn-primary w-full flex items-center justify-center gap-2">
+              <button disabled className="btn-primary w-full flex items-center justify-center gap-2 py-2 sm:py-2.5 text-sm sm:text-base">
                 <Loader2 className="w-5 h-5 animate-spin" />
                 Creating Trade...
               </button>
