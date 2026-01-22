@@ -1,0 +1,13 @@
+[build]
+  command = "npm run build"
+  publish = "out"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Handle SPA routing - only redirect if file doesn't exist
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false
